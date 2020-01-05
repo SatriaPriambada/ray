@@ -130,6 +130,7 @@ class HTTPProxy:
         # load the kwargs creator
         kwargs_creator = pickle.loads(self.policy_table_cache[service_name])
         kwargs = kwargs_creator()
+        args = ()
 
         request_sent_time = time.time()
 
@@ -137,15 +138,15 @@ class HTTPProxy:
         # specify the context as Python.
         # All the services aimed at profiling should have backends which
         # support Python context.
-        result_object_id_bytes = await (
-            self.serve_global_state.init_or_get_router()
-            .enqueue_request.remote(
-                service=service_name,
-                request_args=(),
-                request_kwargs=kwargs,
-                request_context=TaskContext.Python))
+        request_params = RequestParams(
+            service_name, TaskContext.Python)
 
-        result = await ray.ObjectID(result_object_id_bytes)
+        # await for request info to get back
+        req_info = await (self.serve_global_state.init_or_get_router()
+                          .enqueue_request.remote(request_params, *args,
+                                                  **kwargs))
+
+        result = await next(iter(req_info))
 
         result_received_time = time.time()
 
