@@ -481,3 +481,8 @@ def stat(percentiles=[50, 90, 95],
     """
     return ray.get(global_state.init_or_get_metric_monitor().collect.remote(
         percentiles, agg_windows_seconds))
+    
+@_ensure_connected    
+def shutdown():
+    global_state = None
+    ray.shutdown()

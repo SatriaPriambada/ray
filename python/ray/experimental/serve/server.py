@@ -6,7 +6,8 @@ import uvicorn
 import ray
 from ray.experimental.async_api import _async_init
 from ray.experimental.serve.constants import (HTTP_ROUTER_CHECKER_INTERVAL_S,
-                                              PREDICATE_DEFAULT_VALUE)
+                                              PREDICATE_DEFAULT_VALUE,
+                                              SERVE_PROFILE_PATH)
 from ray.experimental.serve.context import TaskContext
 from ray.experimental.serve.utils import BytesEncoder
 from urllib.parse import parse_qs
@@ -143,8 +144,8 @@ class HTTPProxy:
 
         # await for request info to get back
         req_info = await (self.serve_global_state.init_or_get_router()
-                          .enqueue_request.remote(request_params, *args,
-                                                  **kwargs))
+                          .enqueue_request.remote(request_params, True,
+                                                  PREDICATE_DEFAULT_VALUE, *args, **kwargs))
 
         result = await next(iter(req_info))
 
