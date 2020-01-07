@@ -84,6 +84,8 @@ def test_batching(serve_instance):
 
         @serve.accept_batch
         def __call__(self, flask_request, temp=None):
+            # simulating some intensive work
+            time.sleep(1)
             self.count += 1
             batch_size = serve.context.batch_size
             return [self.count] * batch_size

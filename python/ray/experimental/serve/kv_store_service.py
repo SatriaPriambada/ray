@@ -272,6 +272,11 @@ class BackendTable:
     def list_backends(self):
         return list(self.backend_table.as_dict().keys())
 
+    def get_backend_predicate(self, backend_tag):
+        backend_info = json.loads(self.backend_info.get(backend_tag, "{}"))
+        if "enable_predicate" in backend_info:
+            return backend_info["enable_predicate"]
+
     def list_replicas(self, backend_tag: str):
         return json.loads(self.replica_table.get(backend_tag, "[]"))
 

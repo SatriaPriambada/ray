@@ -219,7 +219,8 @@ def get_backend_config(backend_tag):
 def create_backend(func_or_class,
                    backend_tag,
                    *actor_init_args,
-                   backend_config=BackendConfig()):
+                   backend_config=BackendConfig(),
+                   predicate_function=None):
     """Create a backend using func_or_class and assign backend_tag.
 
     Args:
@@ -231,6 +232,8 @@ def create_backend(func_or_class,
         for starting a backend.
         *actor_init_args (optional): the argument to pass to the class
             initialization method.
+        predicate_function(callable): a function which returns boolean values
+            for conditional enqueuing.
     """
     assert isinstance(backend_config,
                       BackendConfig), ("backend_config must be"
@@ -249,9 +252,14 @@ def create_backend(func_or_class,
         if should_accept_batch and not hasattr(func_or_class,
                                                "serve_accept_batch"):
             raise batch_annotation_not_found
-
+        if backend_config.enable_predicate and predicate_function is None:
+            raise RayServeException(
+                "For enabling predicate, Specify predicate_function.")
         # arg list for a fn is function itself
         arg_list = [func_or_class]
+        # add predicate function to args
+        if backend_config.enable_predicate:
+            arg_list.append(predicate_function)
 
         # ignore lint on lambda expression
         creator = lambda kwrgs: TaskRunnerActor._remote(**kwrgs)  # noqa: E731
@@ -259,7 +267,11 @@ def create_backend(func_or_class,
         if should_accept_batch and not hasattr(func_or_class.__call__,
                                                "serve_accept_batch"):
             raise batch_annotation_not_found
-
+        if backend_config.enable_predicate and not hasattr(
+                func_or_class, "__predicate__"):
+            raise RayServeException(
+                "For enabling predicate, implement __predicate__ function "
+                "in backend class.")
         # Python inheritance order is right-to-left. We put RayServeMixin
         # on the left to make sure its methods are not overriden.
         @ray.remote
@@ -314,7 +326,10 @@ def _start_replica(backend_tag):
     # Setup the worker
     ray.get(
         runner_handle._ray_serve_setup.remote(
-            backend_tag, global_state.init_or_get_router(), runner_handle))
+            backend_tag,
+            global_state.init_or_get_router(),
+            runner_handle,
+            predicate_required=backend_config.enable_predicate))
     runner_handle._ray_serve_fetch.remote()
 
     # Register the worker in config tables as well as metric monitor
@@ -411,10 +426,16 @@ def split(endpoint_name, traffic_policy_dictionary):
     assert isinstance(traffic_policy_dictionary,
                       dict), "Traffic policy must be dictionary"
     prob = 0
+    backend_predicates = []
     for backend, weight in traffic_policy_dictionary.items():
         prob += weight
         assert (backend in global_state.backend_table.list_backends()
                 ), "backend {} is not registered".format(backend)
+        backend_predicates.append(
+            global_state.backend_table.get_backend_predicate(backend))
+    assert len(set(backend_predicates)) == 1, ("Provided backends are not"
+                                               "consistent wrt to predicate"
+                                               "feature")
     assert np.isclose(
         prob, 1,
         atol=0.02), "weights must sum to 1, currently it sums to {}".format(

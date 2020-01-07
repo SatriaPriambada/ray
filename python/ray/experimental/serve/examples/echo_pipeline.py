@@ -82,7 +82,7 @@ third_object_id = ray.ObjectID.from_random()
 # asynchronous! All the remote calls below are completely asynchronous
 temp1 = handle2.remote(
     relay=first_object_id,
-    return_object_ids=[second_object_id],
+    return_object_ids={serve.RESULT_KEY: second_object_id},
     slo_ms=wall_clock_slo,
     is_wall_clock_time=True)
 
@@ -90,14 +90,14 @@ temp1 = handle2.remote(
 assert temp1 is None
 handle3.remote(
     relay=first_object_id,
-    return_object_ids=[third_object_id],
+    return_object_ids={serve.RESULT_KEY: third_object_id},
     slo_ms=wall_clock_slo,
     is_wall_clock_time=True)
 fourth_object_id = ray.ObjectID.from_random()
 temp2 = handle4.remote(
     relay1=second_object_id,
     relay2=third_object_id,
-    return_object_ids=[fourth_object_id],
+    return_object_ids={serve.RESULT_KEY: fourth_object_id},
     slo_ms=wall_clock_slo,
     is_wall_clock_time=True)
 assert temp2 is None

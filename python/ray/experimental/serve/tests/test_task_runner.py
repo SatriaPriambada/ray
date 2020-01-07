@@ -7,6 +7,8 @@ from ray.experimental.serve.task_runner import (
     RayServeMixin, TaskRunner, TaskRunnerActor, wrap_to_ray_error)
 from ray.experimental.serve.request_params import RequestParams
 
+from ray.experimental.serve.constants import PREDICATE_DEFAULT_VALUE
+
 
 def test_runner_basic():
     def echo(i):
@@ -40,7 +42,10 @@ def test_runner_actor(serve_instance):
     for query in [333, 444, 555]:
         query_param = RequestParams(PRODUCER_NAME, context.TaskContext.Python)
         result_token = next(
-            iter(ray.get(q.enqueue_request.remote(query_param, i=query))))
+            iter(
+                ray.get(
+                    q.enqueue_request.remote(
+                        query_param, True, PREDICATE_DEFAULT_VALUE, i=query))))
 
         assert ray.get(result_token) == query
 
@@ -72,7 +77,10 @@ def test_ray_serve_mixin(serve_instance):
     for query in [333, 444, 555]:
         query_param = RequestParams(PRODUCER_NAME, context.TaskContext.Python)
         result_token = next(
-            iter(ray.get(q.enqueue_request.remote(query_param, i=query))))
+            iter(
+                ray.get(
+                    q.enqueue_request.remote(
+                        query_param, True, PREDICATE_DEFAULT_VALUE, i=query))))
         assert ray.get(result_token) == query + 3
 
 
@@ -94,7 +102,10 @@ def test_task_runner_check_context(serve_instance):
     q.link.remote(PRODUCER_NAME, CONSUMER_NAME)
     query_param = RequestParams(PRODUCER_NAME, context.TaskContext.Python)
     result_token = next(
-        iter(ray.get(q.enqueue_request.remote(query_param, i=42))))
+        iter(
+            ray.get(
+                q.enqueue_request.remote(
+                    query_param, True, PREDICATE_DEFAULT_VALUE, i=42))))
 
     with pytest.raises(ray.exceptions.RayTaskError):
         ray.get(result_token)

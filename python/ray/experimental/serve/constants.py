@@ -16,5 +16,12 @@ DEFAULT_HTTP_HOST = "0.0.0.0"
 #: HTTP Port
 DEFAULT_HTTP_PORT = 8000
 
+#: Return ObjectIDs keys for a dictionary
+RESULT_KEY = "result"
+PREDICATE_KEY = "predicate"
+
+# default value to pass when Enqeueue Predicate is False
+PREDICATE_DEFAULT_VALUE = "predicate-false"
+
 #: Default path for profiling services
 SERVE_PROFILE_PATH = "/RayServeProfile"

@@ -7,6 +7,7 @@ from ray.experimental.serve.context import FakeFlaskRequest
 from collections import defaultdict
 from ray.experimental.serve.utils import parse_request_item
 from ray.experimental.serve.exceptions import RayServeException
+from ray.experimental.serve.constants import RESULT_KEY, PREDICATE_KEY
 
 
 class TaskRunner:
@@ -16,11 +17,15 @@ class TaskRunner:
     That is, a ray serve actor should implement the TaskRunner interface.
     """
 
-    def __init__(self, func_to_run):
+    def __init__(self, func_to_run, predicate_to_run=None):
         self.func = func_to_run
+        self.predicate_to_run = predicate_to_run
 
     def __call__(self, *args, **kwargs):
         return self.func(*args, **kwargs)
+
+    def __predicate__(self, result):
+        return self.predicate_to_run(result)
 
 
 def wrap_to_ray_error(exception):
@@ -53,6 +58,7 @@ class RayServeMixin:
     _ray_serve_router_handle = None
     _ray_serve_setup_completed = False
     _ray_serve_dequeue_requester_name = None
+    _predicate_required = False
 
     # Work token can be unfullfilled from last iteration.
     # This cache will be used to determine whether or not we should
@@ -81,11 +87,16 @@ class RayServeMixin:
             },
         }
 
-    def _ray_serve_setup(self, my_name, router_handle, my_handle):
+    def _ray_serve_setup(self,
+                         my_name,
+                         router_handle,
+                         my_handle,
+                         predicate_required=False):
         self._ray_serve_dequeue_requester_name = my_name
         self._ray_serve_router_handle = router_handle
         self._ray_serve_self_handle = my_handle
         self._ray_serve_setup_completed = True
+        self._predicate_required = predicate_required
 
     def _ray_serve_fetch(self):
         assert self._ray_serve_setup_completed
@@ -94,21 +105,43 @@ class RayServeMixin:
             self._ray_serve_dequeue_requester_name,
             self._ray_serve_self_handle)
 
+    def _check_predicate_demand(self, predicate_required):
+        if predicate_required != self._predicate_required:
+            if predicate_required:
+                raise RayServeException(
+                    "Backend doesn't support predicate feature!")
+            else:
+                raise RayServeException(
+                    "Backend requires predicate objectid to be specified"
+                    " while issuing the request!")
+
     def invoke_single(self, request_item):
         args, kwargs, is_web_context, result_object_id = parse_request_item(
             request_item)
         serve_context.web = is_web_context
+        predicate_required = PREDICATE_KEY in result_object_id
         start_timestamp = time.time()
         try:
+            # check predicate demand
+            self._check_predicate_demand(predicate_required)
             result = self.__call__(*args, **kwargs)
-            for rid in result_object_id:
-                ray.worker.global_worker.put_object(result, rid)
+            if self._predicate_required:
+                predicate_result = self.__predicate__(result)
+
+            ray.worker.global_worker.put_object(result,
+                                                result_object_id[RESULT_KEY])
+            if self._predicate_required:
+                ray.worker.global_worker.put_object(
+                    predicate_result, result_object_id[PREDICATE_KEY])
+
         except Exception as e:
             wrapped_exception = wrap_to_ray_error(e)
             self._serve_metric_error_counter += 1
-            for return_id in result_object_id:
-                ray.worker.global_worker.put_object(wrapped_exception,
-                                                    return_id)
+            ray.worker.global_worker.put_object(wrapped_exception,
+                                                result_object_id[RESULT_KEY])
+            if PREDICATE_KEY in result_object_id:
+                ray.worker.global_worker.put_object(
+                    wrapped_exception, result_object_id[PREDICATE_KEY])
         self._serve_metric_latency_list.append(time.time() - start_timestamp)
 
     def invoke_batch(self, request_item_list):
@@ -129,11 +162,13 @@ class RayServeMixin:
         kwargs_list = defaultdict(list)
         result_object_ids, context_flag_list, arg_list = [], [], []
         curr_batch_size = len(request_item_list)
-
+        predicate_list_flag = list()
         for item in request_item_list:
             args, kwargs, is_web_context, result_object_id = (
                 parse_request_item(item))
             context_flag_list.append(is_web_context)
+            predicate_required = PREDICATE_KEY in result_object_id
+            predicate_list_flag.append(predicate_required)
 
             # Python context only have kwargs
             # Web context only have one positional argument
@@ -150,7 +185,19 @@ class RayServeMixin:
             if len(set(context_flag_list)) != 1:
                 raise RayServeException(
                     "Batched queries contain mixed context.")
+
+            # check mixing of predicate queries
+            # unified query in terms of predicate return needed
+            if len(set(predicate_list_flag)) != 1:
+                raise RayServeException(
+                    "Batched queries contain mixed predicate demand.")
+
             serve_context.web = all(context_flag_list)
+            predicate_required = all(predicate_list_flag)
+
+            # check predicate demand
+            self._check_predicate_demand(predicate_required)
+
             if serve_context.web:
                 args = (arg_list, )
             else:
@@ -163,8 +210,11 @@ class RayServeMixin:
                 args = (fake_flask_request_lst, )
             # set the current batch size (n) for serve_context
             serve_context.batch_size = len(result_object_ids)
+
             start_timestamp = time.time()
             result_list = self.__call__(*args, **kwargs_list)
+            if self._predicate_required:
+                predicate_list = self.__predicate__(result_list)
             if (not isinstance(result_list, list)) or (len(result_list) !=
                                                        len(result_object_ids)):
                 raise RayServeException("__call__ function "
@@ -173,20 +223,40 @@ class RayServeMixin:
                                         "with length equals to the batch "
                                         "size.")
 
-            for result, result_object_id in zip(result_list,
-                                                result_object_ids):
-                for return_id in result_object_id:
-                    ray.worker.global_worker.put_object(result, return_id)
+            if self._predicate_required:
+                if ((not isinstance(predicate_list, list))
+                        or (len(predicate_list) != len(result_object_ids))):
+                    raise RayServeException("__predicate__ function "
+                                            "doesn't preserve batch-size. "
+                                            "Please return a list of result "
+                                            "with length equals to the batch "
+                                            "size.")
+
+                for result, predicate_result, result_object_id in zip(
+                        result_list, predicate_list, result_object_ids):
+                    ray.worker.global_worker.put_object(
+                        result, result_object_id[RESULT_KEY])
+                    ray.worker.global_worker.put_object(
+                        predicate_result, result_object_id[PREDICATE_KEY])
+            else:
+                for result, result_object_id in zip(result_list,
+                                                    result_object_ids):
+                    ray.worker.global_worker.put_object(
+                        result, result_object_id[RESULT_KEY])
 
             self._serve_metric_latency_list.append(time.time() -
                                                    start_timestamp)
+
         except Exception as e:
             wrapped_exception = wrap_to_ray_error(e)
             self._serve_metric_error_counter += len(result_object_ids)
             for result_object_id in result_object_ids:
-                for return_id in result_object_id:
+                # for return_id in result_object_id:
+                ray.worker.global_worker.put_object(
+                    wrapped_exception, result_object_id[RESULT_KEY])
+                if PREDICATE_KEY in result_object_id:
                     ray.worker.global_worker.put_object(
-                        wrapped_exception, return_id)
+                        wrapped_exception, result_object_id[PREDICATE_KEY])
 
     def _ray_serve_call(self, request):
         work_item = request

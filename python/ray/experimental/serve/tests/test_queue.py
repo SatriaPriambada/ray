@@ -4,6 +4,8 @@ from ray.experimental.serve.queues import RandomPolicyQueue
 from ray.experimental.serve.queues import (RoundRobinPolicyQueue,
                                            FixedPackingPolicyQueue)
 from ray.experimental.serve.request_params import RequestParams
+from ray.experimental.serve.constants import (RESULT_KEY,
+                                              PREDICATE_DEFAULT_VALUE)
 
 
 @pytest.fixture(scope="session")
@@ -28,13 +30,16 @@ def test_single_prod_cons_queue(serve_instance, task_runner_mock_actor):
     q.link("svc", "backend")
 
     result_object_id = next(
-        iter(q.enqueue_request(RequestParams("svc", None), 1)))
+        iter(
+            q.enqueue_request(
+                RequestParams("svc", None), True, PREDICATE_DEFAULT_VALUE, 1)))
     q.dequeue_request("backend", task_runner_mock_actor)
     got_work = ray.get(task_runner_mock_actor.get_recent_call.remote())
     assert got_work.request_args[0] == 1
     assert got_work.request_kwargs == {}
 
-    ray.worker.global_worker.put_object(2, got_work.result_object_id[0])
+    ray.worker.global_worker.put_object(2,
+                                        got_work.result_object_id[RESULT_KEY])
     assert ray.get(result_object_id) == 2
 
 
@@ -44,7 +49,9 @@ def test_slo(serve_instance, task_runner_mock_actor):
 
     for i in range(10):
         slo_ms = 1000 - 100 * i
-        q.enqueue_request(RequestParams("svc", None, request_slo_ms=slo_ms), i)
+        q.enqueue_request(
+            RequestParams("svc", None, request_slo_ms=slo_ms), True,
+            PREDICATE_DEFAULT_VALUE, i)
     for i in range(10):
         q.dequeue_request("backend", task_runner_mock_actor)
         got_work = ray.get(task_runner_mock_actor.get_recent_call.remote())
@@ -56,20 +63,26 @@ def test_alter_backend(serve_instance, task_runner_mock_actor):
 
     q.set_traffic("svc", {"backend-1": 1})
     result_object_id = next(
-        iter(q.enqueue_request(RequestParams("svc", None), 1)))
+        iter(
+            q.enqueue_request(
+                RequestParams("svc", None), True, PREDICATE_DEFAULT_VALUE, 1)))
     q.dequeue_request("backend-1", task_runner_mock_actor)
     got_work = ray.get(task_runner_mock_actor.get_recent_call.remote())
     assert got_work.request_args[0] == 1
-    ray.worker.global_worker.put_object(2, got_work.result_object_id[0])
+    ray.worker.global_worker.put_object(2,
+                                        got_work.result_object_id[RESULT_KEY])
     assert ray.get(result_object_id) == 2
 
     q.set_traffic("svc", {"backend-2": 1})
     result_object_id = next(
-        iter(q.enqueue_request(RequestParams("svc", None), 1)))
+        iter(
+            q.enqueue_request(
+                RequestParams("svc", None), True, PREDICATE_DEFAULT_VALUE, 1)))
     q.dequeue_request("backend-2", task_runner_mock_actor)
     got_work = ray.get(task_runner_mock_actor.get_recent_call.remote())
     assert got_work.request_args[0] == 1
-    ray.worker.global_worker.put_object(2, got_work.result_object_id[0])
+    ray.worker.global_worker.put_object(2,
+                                        got_work.result_object_id[RESULT_KEY])
     assert ray.get(result_object_id) == 2
 
 
@@ -80,7 +93,8 @@ def test_split_traffic(serve_instance, task_runner_mock_actor):
     # assume 50% split, the probability of all 20 requests goes to a
     # single queue is 0.5^20 ~ 1-6
     for _ in range(20):
-        q.enqueue_request(RequestParams("svc", None), 1)
+        q.enqueue_request(
+            RequestParams("svc", None), True, PREDICATE_DEFAULT_VALUE, 1)
     q.dequeue_request("backend-1", task_runner_mock_actor)
     result_one = ray.get(task_runner_mock_actor.get_recent_call.remote())
     q.dequeue_request("backend-2", task_runner_mock_actor)
@@ -96,7 +110,8 @@ def test_split_traffic_round_robin(serve_instance, task_runner_mock_actor):
     # since round robin policy is stateful firing two queries consecutively
     # would transfer the queries to two different backends
     for _ in range(2):
-        q.enqueue_request(RequestParams("svc", None), 1)
+        q.enqueue_request(
+            RequestParams("svc", None), True, PREDICATE_DEFAULT_VALUE, 1)
     q.dequeue_request("backend-1", task_runner_mock_actor)
     result_one = ray.get(task_runner_mock_actor.get_recent_call.remote())
     q.dequeue_request("backend-2", task_runner_mock_actor)
@@ -113,7 +128,8 @@ def test_split_traffic_fixed_packing(serve_instance, task_runner_mock_actor):
 
     # fire twice the number of queries as the packing number
     for i in range(2 * packing_num):
-        q.enqueue_request(RequestParams("svc", None), i)
+        q.enqueue_request(
+            RequestParams("svc", None), True, PREDICATE_DEFAULT_VALUE, i)
 
     # both the backends will get equal number of queries
     # as it is packed round robin

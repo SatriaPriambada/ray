@@ -1,4 +1,5 @@
 import inspect
+from ray.experimental.serve.constants import RESULT_KEY, PREDICATE_KEY
 
 
 class RequestParams:
@@ -11,8 +12,9 @@ class RequestParams:
         request_context(TaskContext): Context of a request.
         request_slo_ms(float): Expected time for the query to get
             completed.
-        return_object_ids(list[ray.ObjectID]): List of ObjectIds where
-            result of the request will be put.
+        return_object_ids(dict[str,ray.ObjectID]): Dictionary of ObjectIds
+            where result or predicate of the request will be put. Supported
+            keys are: ['result' , 'predicate']
         is_wall_clock_time(bool): if True, router won't add wall clock
             time to `request_slo_ms`.
         return_wall_clock_time(bool): if True, wall clock time for query
@@ -24,13 +26,22 @@ class RequestParams:
                  service,
                  request_context,
                  request_slo_ms=None,
-                 return_object_ids=None,
+                 return_object_ids={},
                  is_wall_clock_time=False,
                  return_wall_clock_time=False):
 
         self.service = service
         self.request_context = request_context
         self.request_slo_ms = request_slo_ms
+        if return_object_ids is not None:
+            # check for dictionary
+            assert isinstance(return_object_ids, dict), ("return_object_ids"
+                                                         " must be a "
+                                                         "dictionary.")
+            # keys must be a subset of return_keys_supproted
+            assert (set(return_object_ids.keys()) <= set(
+                [RESULT_KEY, PREDICATE_KEY])), ("return_object_ids "
+                                                "specified wrongly")
         self.return_object_ids = return_object_ids
         self.is_wall_clock_time = is_wall_clock_time
         self.return_wall_clock_time = return_wall_clock_time
@@ -73,14 +84,13 @@ class RequestInfo:
 
     def __iter__(self):
         if self.return_object_id:
-            for object_id in self.result_object_id:
-                yield object_id
+            yield self.result_object_id[RESULT_KEY]
         if self.return_wall_clock_time:
             yield self.request_slo_ms
 
     @staticmethod
     def wait_for_requestInfo(request_params):
-        if (request_params.return_object_ids is None
+        if (RESULT_KEY not in request_params.return_object_ids
                 or request_params.return_wall_clock_time):
             return True
         return False

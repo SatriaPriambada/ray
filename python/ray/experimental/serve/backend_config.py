@@ -4,11 +4,13 @@ from copy import deepcopy
 class BackendConfig:
     # configs not needed for actor creation when
     # instantiating a replica
-    _serve_configs = ["_num_replicas", "max_batch_size"]
+    _serve_configs = ["_num_replicas", "max_batch_size", "enable_predicate"]
 
     # configs which when changed leads to restarting
     # the existing replicas.
-    restart_on_change_fields = ["resources", "num_cpus", "num_gpus"]
+    restart_on_change_fields = [
+        "resources", "num_cpus", "num_gpus", "enable_predicate"
+    ]
 
     def __init__(self,
                  num_replicas=1,
@@ -17,7 +19,8 @@ class BackendConfig:
                  num_cpus=None,
                  num_gpus=None,
                  memory=None,
-                 object_store_memory=None):
+                 object_store_memory=None,
+                 enable_predicate=False):
         """
         Class for defining backend configuration.
         """
@@ -32,6 +35,7 @@ class BackendConfig:
         self.num_gpus = num_gpus
         self.memory = memory
         self.object_store_memory = object_store_memory
+        self.enable_predicate = enable_predicate
 
     @property
     def num_replicas(self):
