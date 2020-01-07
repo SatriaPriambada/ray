@@ -231,6 +231,7 @@ class HTTPProxy:
         args = (scope, [http_body_bytes])
         kwargs = dict()
 
+        request_sent_time = time.time()
         # await for request info to get back
         req_info = await (self.serve_global_state.init_or_get_router()
                           .enqueue_request.remote(request_params, *args,
@@ -238,6 +239,14 @@ class HTTPProxy:
 
         # await for result
         result = await next(iter(req_info))
+        result_received_time = time.time()
+        self.profile_file.write(
+            json.dumps({
+                "start": request_sent_time,
+                "end": result_received_time
+            }))
+        self.profile_file.write("\n")
+        self.profile_file.flush()
 
         if isinstance(result, ray.exceptions.RayTaskError):
             await JSONResponse({
