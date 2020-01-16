@@ -15,6 +15,7 @@ from ray.experimental.serve.request_params import RequestParams
 import os
 from ray import cloudpickle as pickle
 import time
+import sys
 
 
 class JSONResponse:
@@ -265,4 +266,4 @@ class HTTPActor:
 
     def run(self, host="0.0.0.0", port=8000):
         uvicorn.run(
-            self.app, host=host, port=port, lifespan="on", access_log=False)
+            self.app, host=host, port=port, lifespan="on", access_log=True, limit_concurrency=sys.maxsize, limit_max_requests=sys.maxsize)
