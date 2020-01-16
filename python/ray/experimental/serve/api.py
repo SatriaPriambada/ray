@@ -484,5 +484,6 @@ def stat(percentiles=[50, 90, 95],
     
 @_ensure_connected    
 def shutdown():
+    global global_state
     global_state = None
     ray.shutdown()
