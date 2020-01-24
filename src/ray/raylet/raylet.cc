@@ -44,7 +44,7 @@ Raylet::Raylet(boost::asio::io_service &main_service, const std::string &socket_
                int redis_port, const std::string &redis_password,
                const NodeManagerConfig &node_manager_config,
                const ObjectManagerConfig &object_manager_config,
-               std::shared_ptr<gcs::RedisGcsClient> gcs_client)
+               std::shared_ptr<gcs::GcsClient> gcs_client)
     : self_node_id_(ClientID::FromRandom()),
       gcs_client_(gcs_client),
       object_directory_(std::make_shared<ObjectDirectory>(main_service, gcs_client_)),
@@ -103,8 +103,8 @@ ray::Status Raylet::RegisterGcs() {
     resource->set_resource_capacity(resource_pair.second);
     resources.emplace(resource_pair.first, resource);
   }
-  RAY_RETURN_NOT_OK(gcs_client_->resource_table().Update(JobID::Nil(), self_node_id_,
-                                                         resources, nullptr));
+  RAY_RETURN_NOT_OK(
+      gcs_client_->Nodes().AsyncUpdateResources(self_node_id_, resources, nullptr));
 
   RAY_RETURN_NOT_OK(node_manager_.RegisterGcs());
 
